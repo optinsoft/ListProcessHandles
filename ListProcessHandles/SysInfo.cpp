@@ -798,15 +798,6 @@ BOOL SysHandleInformation::GetThreadId(HANDLE h, DWORD& threadID, DWORD processI
 }
 
 //Process related functions
-BOOL SysHandleInformation::GetProcessPath(HANDLE h, _tstring& strPath, DWORD remoteProcessId)
-{
-	h; strPath; remoteProcessId;
-
-	strPath = SysInfoUtils::StringFormat(_T("%d"), remoteProcessId);
-
-	return TRUE;
-}
-
 BOOL SysHandleInformation::GetProcessId(HANDLE h, DWORD& processId, DWORD remoteProcessId)
 {
 	BOOL ret = FALSE;
@@ -857,6 +848,32 @@ BOOL SysHandleInformation::GetProcessId(HANDLE h, DWORD& processId, DWORD remote
 	}
 
 	return ret;
+}
+
+BOOL SysHandleInformation::GetProcessTimes(HANDLE h, LPFILETIME lpCreationTime, LPFILETIME lpExitTime, LPFILETIME lpKernelTime, LPFILETIME lpUserTime, DWORD remoteProcessId)
+{
+	BOOL ret = FALSE;
+	HANDLE handle;
+	HANDLE hRemoteProcess = NULL;
+	BOOL remote = remoteProcessId != GetCurrentProcessId();
+
+	if (remote)
+	{
+		// Open process
+		hRemoteProcess = OpenProcess(remoteProcessId);
+
+		if (hRemoteProcess == NULL) {
+			return FALSE;
+		}
+
+		// Duplicate handle
+		handle = DuplicateHandle(hRemoteProcess, h);
+	}
+	else {
+		handle = h;
+	}
+
+	return ::GetProcessTimes(handle, lpCreationTime, lpExitTime, lpKernelTime, lpUserTime);
 }
 
 //File related functions

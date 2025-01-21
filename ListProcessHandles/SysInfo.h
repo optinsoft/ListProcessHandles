@@ -187,7 +187,7 @@ public:
 
 	//Process related functions
 	static BOOL GetProcessId(HANDLE, DWORD&, DWORD processId = GetCurrentProcessId());
-	static BOOL GetProcessPath(HANDLE h, _tstring& strPath, DWORD processId = GetCurrentProcessId());
+	static BOOL GetProcessTimes(HANDLE, LPFILETIME, LPFILETIME, LPFILETIME, LPFILETIME, DWORD processId = GetCurrentProcessId());
 
 	//File related functions
 	static BOOL GetFileName(HANDLE, _tstring&, DWORD processId = GetCurrentProcessId());
