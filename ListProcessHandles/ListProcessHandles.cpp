@@ -95,8 +95,8 @@ void print_process_info(DWORD dwProcessID, SYSTEM_PROCESS_INFORMATION* pSysProce
 	_tprintf(_T("Process ID: %lu, Name: %s, %s\n"), dwProcessID, strName.c_str(), sTimeInfo.c_str());
 }
 
-void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, LPCTSTR lpFsPathFilter, BOOL bHandleProcessFilter, 
-	BOOL bTerminateFilteredProcesses = FALSE, BOOL bSilentTerminate = FALSE, 
+void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, LPCTSTR lpFsPathFilter, DWORD dwRunningTimeFilter, 
+	BOOL bHandleProcessFilter, BOOL bTerminateFilteredProcesses = FALSE, BOOL bSilentTerminate = FALSE, 
 	BOOL bPrintProcessFilterInfo = FALSE, BOOL bPrintFileHandleName = FALSE, BOOL bPrintFilteredProcesses = TRUE)
 {
 	FILETIME CurrentTime;
@@ -150,9 +150,11 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 	{
 		const SYSTEM_HANDLE_TABLE_ENTRY_INFO& h = *it;
 
-		hi.GetName((HANDLE)h.HandleValue, name, (DWORD)h.UniqueProcessId);
+		DWORD dwProcessID = (DWORD)h.UniqueProcessId;
 
-		hi.GetTypeToken((HANDLE)h.HandleValue, typeName, (DWORD)h.UniqueProcessId);
+		hi.GetName((HANDLE)h.HandleValue, name, dwProcessID);
+
+		hi.GetTypeToken((HANDLE)h.HandleValue, typeName, dwProcessID);
 
 		hi.GetTypeFromTypeToken(typeName.c_str(), type);
 
@@ -165,17 +167,33 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 			bFilterOut = bFilterOut && _tcsstr(fsPath.c_str(), lpFsPathFilter) == NULL;
 		}
 
+		if (dwRunningTimeFilter > 0 && !bFilterOut) {
+			FILETIME CreationTime, ExitTime, KernelTime, UserTime;
+			BOOL bProcessTimes = hi.GetProcessTimes((HANDLE)-1, &CreationTime, &ExitTime, &KernelTime, &UserTime, dwProcessID);
+			if (bProcessTimes) {
+				auto u64RunningTime = get_running_time(&CreationTime, &CurrentTime);
+				auto u64RunningMilliSeconds = u64RunningTime / 10000;
+				auto u64RunningSeconds = u64RunningMilliSeconds / 1000;
+				bFilterOut = u64RunningSeconds < static_cast<std::uint64_t>(dwRunningTimeFilter);
+			}
+			else {
+				DWORD err = GetLastError();
+				_tprintf(_T("GetProcessTimes() failed with error %lu.\n"), err);
+				bFilterOut = TRUE;
+			}
+		}
+
 		if (!bFilterOut) {
 			if (bPrintFileHandleName) {
-				_tprintf(_T("%s Handle: %hu, Process ID: %lu, Name: %s\n"), typeName.c_str(), h.HandleValue, (DWORD)h.UniqueProcessId, name.c_str());
+				_tprintf(_T("%s Handle: %hu, Process ID: %lu, Name: %s\n"), typeName.c_str(), h.HandleValue, dwProcessID, name.c_str());
 			} 
 			else {
-				_tprintf(_T("%s Handle: %hu, Process ID: %lu\n"), typeName.c_str(), h.HandleValue, (DWORD)h.UniqueProcessId);
+				_tprintf(_T("%s Handle: %hu, Process ID: %lu\n"), typeName.c_str(), h.HandleValue, dwProcessID);
 			}
 			if (fsPath != _T("")) {
 				_tprintf(_T("File Path: %s\n"), fsPath.c_str());
 			}
-			filteredProcesses.insert((DWORD)h.UniqueProcessId);
+			filteredProcesses.insert(dwProcessID);
 		}
 	}
 
@@ -195,7 +213,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 				print_process_info(dwProcessID, pSysProcess, &hi, &CurrentTime);
 			}
 			else {
-				_tprintf(_T("Process ID: %lu, Process info not found!\n"), dwProcessID);
+				_tprintf(_T("Process ID: %lu, process info not found.\n"), dwProcessID);
 			}
 		}
 	}
@@ -222,16 +240,16 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 					UINT uExitCode = 1;
 					if (!TerminateProcess(hProcess, uExitCode)) {
 						DWORD err = GetLastError();
-						_tprintf(_T("Process ID: %lu, TerminateProcess() failed with error %lu\n"), dwProcessID, err);
+						_tprintf(_T("Process ID: %lu, TerminateProcess() failed with error %lu.\n"), dwProcessID, err);
 					}
 					else {
-						_tprintf(_T("Process ID: %lu, process has been terminated with exit code %lu\n"), dwProcessID, uExitCode);
+						_tprintf(_T("Process ID: %lu, process has been terminated with exit code %lu.\n"), dwProcessID, uExitCode);
 					}
 					CloseHandle(hProcess);
 				}
 				else {
 					DWORD err = GetLastError();
-					_tprintf(_T("Process ID: %lu, OpenProcess() failed with error %lu\n"), dwProcessID, err);
+					_tprintf(_T("Process ID: %lu, OpenProcess() failed with error %lu.\n"), dwProcessID, err);
 				}
 			}
 		}
@@ -241,5 +259,5 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 
 int main()
 {
-	list_processes_and_handles(_T("firefox.exe"), _T("File"), _T("\\Profiles\\"), TRUE);
+	list_processes_and_handles(_T("firefox.exe"), _T("File"), _T("\\Profiles\\"), 300, TRUE);
 }
