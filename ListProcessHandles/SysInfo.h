@@ -1,22 +1,24 @@
 #pragma once
 
-#include <Windows.h>
+#define PHNT_VERSION PHNT_THRESHOLD
+
+#include <phnt_windows.h>
+#include <phnt.h>
+
 #include <string>
 #include <list>
 #include <unordered_map>
+#include <set>
+
+#include <tchar.h>
+#include <memory>
+#include <stdexcept>
 
 #if defined(UNICODE)
 #define _tstring std::wstring
 #else
 #define _tstring std::string
 #endif
-
-typedef struct _UNICODE_STRING
-{
-	WORD  Length;
-	WORD  MaximumLength;
-	PWSTR Buffer;
-} UNICODE_STRING;
 
 class SysInfoUtils
 {
@@ -30,8 +32,9 @@ public:
 	// From unicode string to CString
 	static _tstring Unicode2String(UNICODE_STRING* strU);
 	//
-	template<typename ... Args>
-	static _tstring StringFormat(const _tstring& format, Args ... args);
+	static _tstring StringFormat(const TCHAR* format, ...);
+	//
+	static TCHAR ToLower(TCHAR c);
 
 	//////////////////////////////////////////////////////////////////////////////////
 	// File name conversion functions
@@ -68,91 +71,24 @@ protected:
 class SysProcessInformation : public INtDll
 {
 public:
-	typedef LARGE_INTEGER   QWORD;
-
-	typedef struct _PROCESS_BASIC_INFORMATION {
-		DWORD ExitStatus;
-		PVOID PebBaseAddress;
-		DWORD AffinityMask;
-		DWORD BasePriority;
-		DWORD UniqueProcessId;
-		DWORD InheritedFromUniqueProcessId;
-	} PROCESS_BASIC_INFORMATION;
-
-	typedef struct _VM_COUNTERS
-	{
-		DWORD PeakVirtualSize;
-		DWORD VirtualSize;
-		DWORD PageFaultCount;
-		DWORD PeakWorkingSetSize;
-		DWORD WorkingSetSize;
-		DWORD QuotaPeakPagedPoolUsage;
-		DWORD QuotaPagedPoolUsage;
-		DWORD QuotaPeakNonPagedPoolUsage;
-		DWORD QuotaNonPagedPoolUsage;
-		DWORD PagefileUsage;
-		DWORD PeakPagefileUsage;
-	} VM_COUNTERS;
-
-	typedef struct _SYSTEM_THREAD
-	{
-		DWORD        u1;
-		DWORD        u2;
-		DWORD        u3;
-		DWORD        u4;
-		DWORD        ProcessId;
-		DWORD        ThreadId;
-		DWORD        dPriority;
-		DWORD        dBasePriority;
-		DWORD        dContextSwitches;
-		DWORD        dThreadState;      // 2=running, 5=waiting
-		DWORD        WaitReason;
-		DWORD        u5;
-		DWORD        u6;
-		DWORD        u7;
-		DWORD        u8;
-		DWORD        u9;
-	} SYSTEM_THREAD;
-
-	typedef struct _SYSTEM_PROCESS_INFORMATION
-	{
-		DWORD          dNext;
-		DWORD          dThreadCount;
-		DWORD          dReserved01;
-		DWORD          dReserved02;
-		DWORD          dReserved03;
-		DWORD          dReserved04;
-		DWORD          dReserved05;
-		DWORD          dReserved06;
-		QWORD          qCreateTime;
-		QWORD          qUserTime;
-		QWORD          qKernelTime;
-		UNICODE_STRING usName;
-		DWORD	       BasePriority;
-		DWORD          dUniqueProcessId;
-		DWORD          dInheritedFromUniqueProcessId;
-		DWORD          dHandleCount;
-		DWORD          dReserved07;
-		DWORD          dReserved08;
-		VM_COUNTERS    VmCounters;
-		DWORD          dCommitCharge;
-		SYSTEM_THREAD  Threads[1];
-	} SYSTEM_PROCESS_INFORMATION;
-
-	enum { BufferSize = 0x10000 };
-
-public:
-	SysProcessInformation(BOOL bRefresh = FALSE);
+	SysProcessInformation(BOOL bRefresh = FALSE, LPCTSTR lpNameFilter = NULL);
 	virtual ~SysProcessInformation();
+
+	BOOL SetNameFilter(LPCTSTR lpNameFilter, BOOL bRefresh = TRUE);
+	const _tstring& GetNameFilter();
 
 	BOOL Refresh();
 
 public:
-	std::unordered_map< DWORD, SYSTEM_PROCESS_INFORMATION*> m_ProcessInfos;
+	std::unordered_map<DWORD, SYSTEM_PROCESS_INFORMATION*> m_ProcessInfos;
 	SYSTEM_PROCESS_INFORMATION* m_pCurrentProcessInfo;
 
 protected:
+	_tstring m_strNameFilter;
+
+protected:
 	UCHAR* m_pBuffer;
+	DWORD m_nBufferSize;
 };
 
 class SysThreadInformation : public INtDll
@@ -164,17 +100,6 @@ public:
 		DWORD		ThreadId;
 		HANDLE		ThreadHandle;
 	} THREAD_INFORMATION;
-
-
-	typedef struct _BASIC_THREAD_INFORMATION {
-		DWORD u1;
-		DWORD u2;
-		DWORD u3;
-		DWORD ThreadId;
-		DWORD u5;
-		DWORD u6;
-		DWORD u7;
-	} BASIC_THREAD_INFORMATION;
 
 public:
 	SysThreadInformation(DWORD pID = (DWORD)-1, BOOL bRefresh = FALSE);
@@ -219,22 +144,6 @@ public:
 		OB_TYPE_FILE
 	} SystemHandleType;
 
-public:
-	typedef struct _SYSTEM_HANDLE
-	{
-		DWORD	ProcessID;
-		WORD	HandleType;
-		WORD	HandleNumber;
-		DWORD	KernelAddress;
-		DWORD	Flags;
-	} SYSTEM_HANDLE;
-
-	typedef struct _SYSTEM_HANDLE_INFORMATION
-	{
-		DWORD			Count;
-		SYSTEM_HANDLE	Handles[1];
-	} SYSTEM_HANDLE_INFORMATION;
-
 protected:
 	typedef struct _GetFileNameThreadParam
 	{
@@ -244,9 +153,11 @@ protected:
 	} GetFileNameThreadParam;
 
 public:
-	SysHandleInformation(DWORD pID = (DWORD)-1, BOOL bRefresh = FALSE, LPCTSTR lpTypeFilter = NULL);
+	SysHandleInformation(BOOL bUseProcessFilters = FALSE, BOOL bRefresh = FALSE, LPCTSTR lpTypeFilter = NULL);
 	~SysHandleInformation();
 
+	void AddProcessFilter(DWORD dwProcessID);
+	void ResetProcessFilters();
 	BOOL SetTypeFilter(LPCTSTR lpTypeFilter, BOOL bRefresh = TRUE);
 	const _tstring& GetTypeFilter();
 
@@ -279,9 +190,10 @@ protected:
 	static void GetFileNameThread(PVOID /* GetFileNameThreadParam* */);
 
 public:
-	std::list<SYSTEM_HANDLE> m_HandleInfos;
-	DWORD	m_processId;
+	std::list<SYSTEM_HANDLE_TABLE_ENTRY_INFO> m_HandleInfos;
 
 protected:
 	_tstring m_strTypeFilter;
+	std::set<DWORD> m_ProcessFilters;
+	BOOL m_UseProcessFilters;
 };

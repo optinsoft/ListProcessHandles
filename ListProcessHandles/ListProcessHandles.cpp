@@ -5,12 +5,42 @@
 #include "SysInfo.h"
 #include <tchar.h>
 
-void list_handles(DWORD processID, LPCTSTR lpTypeFilter)
+void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, BOOL bHandleProcessFilter, BOOL bPrintProcessFilterInfo = FALSE)
 {
 	SysProcessInformation pi;
-	SysProcessInformation::SYSTEM_PROCESS_INFORMATION* pPi;
-	SysHandleInformation hi(processID, FALSE);
-	hi.SetTypeFilter(lpTypeFilter, TRUE);
+	SysHandleInformation hi(bHandleProcessFilter, FALSE);
+
+	if (!pi.SetNameFilter(lpProcessNameFilter, TRUE))
+	{
+		_tprintf(_T("SysProcessInformation::SetNameFilter() failed.\n"));
+		return;
+	}
+
+	if (pi.m_ProcessInfos.size() == 0)
+	{
+		_tprintf(_T("No process information\n"));
+		return;
+	}
+
+	for (std::unordered_map<DWORD, SYSTEM_PROCESS_INFORMATION*>::const_iterator it = pi.m_ProcessInfos.begin(); it != pi.m_ProcessInfos.end(); ++it) 
+	{
+		DWORD dwProcessID = it->first;
+		if (bPrintProcessFilterInfo) {
+			SYSTEM_PROCESS_INFORMATION* pSysProcess = it->second;
+			_tstring strName = pSysProcess->ImageName.Length > 0 ? SysInfoUtils::Unicode2String(&pSysProcess->ImageName) : _T("");
+			_tstring str = SysInfoUtils::StringFormat(_T("Process ID: %lu, Name: %s\n"), dwProcessID, strName.c_str());
+			_tprintf(str.c_str());
+		}
+		if (bHandleProcessFilter) {
+			hi.AddProcessFilter(dwProcessID);
+		}
+	}
+
+	if (!hi.SetTypeFilter(lpHandleTypeFilter, TRUE))
+	{
+		_tprintf(_T("SysHandleInformation::SetTypeFilter() failed.\n"));
+		return;
+	}
 
 	if (hi.m_HandleInfos.size() == 0)
 	{
@@ -18,28 +48,23 @@ void list_handles(DWORD processID, LPCTSTR lpTypeFilter)
 		return;
 	}
 
-	if (!pi.Refresh())
-	{
-		_tprintf(_T("SysProcessInformation::Refresh() failed.\n"));
-		return;
-	}
+	_tstring name;
+	_tstring type;
 
+	for (std::list<SYSTEM_HANDLE_TABLE_ENTRY_INFO >::const_iterator it = hi.m_HandleInfos.begin(); it != hi.m_HandleInfos.end(); ++it) 
+	{
+		const SYSTEM_HANDLE_TABLE_ENTRY_INFO& h = *it;
+		
+		hi.GetName((HANDLE)h.HandleValue, name, (DWORD)h.UniqueProcessId);
+
+		hi.GetTypeToken((HANDLE)h.HandleValue, type, (DWORD)h.UniqueProcessId);
+
+		_tstring str = SysInfoUtils::StringFormat(_T("%s Handle: %hu, Process ID: %lu, Name: %s\n"), type.c_str(), h.HandleValue, (DWORD)h.UniqueProcessId, name.c_str());
+		_tprintf(str.c_str());
+	}
 }
 
 int main()
 {
-    std::cout << "Hello World!\n";
-
-    list_handles(-1, _T("File"));
+	list_processes_and_handles(_T("firefox.exe"), _T("File"), TRUE);
 }
-
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file

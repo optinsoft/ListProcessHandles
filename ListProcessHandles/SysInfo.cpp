@@ -4,8 +4,8 @@
 #include <tchar.h>
 #include <process.h>
 #include <memory>
-#include <stdexcept>
 #include <ntstatus.h>
+#include <algorithm>
 
 //////////////////////////////////////////////////////////////////////////////////////
 //
@@ -38,15 +38,31 @@ _tstring SysInfoUtils::Unicode2String(UNICODE_STRING* strU)
 		return _T("");
 }
 
-template<typename ... Args >
-_tstring SysInfoUtils::StringFormat(const _tstring& format, Args ... args)
+_tstring SysInfoUtils::StringFormat(const TCHAR* format, ...)
 {
-	int size_s = _sntprintf_s(nullptr, 0, 0, format.c_str(), args ...) + 1; // Extra space for '\0'
-	if (size_s <= 0) { throw std::runtime_error("Error during formatting."); }
+	va_list args;
+	va_start(args, format);
+	int size_s = _vsctprintf(format, args) + 1; // Extra space for '\0'
+	if (size_s <= 0) 
+	{
+		va_end(args);
+		throw std::runtime_error("Error during formatting."); 
+	}
 	auto size = static_cast<size_t>(size_s);
-	std::unique_ptr<TCHAR[]> buf(new TCHAR[size]);
-	_sntprintf_s(buf.get(), size, size, format.c_str(), args ...);
-	return _tstring(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
+	std::unique_ptr<TCHAR[]> buffer(new TCHAR[size + 1]{ '\0' });
+	auto lpBuffer = buffer.get();
+	_vstprintf_s(lpBuffer, size, format, args);
+	va_end(args);
+	return _tstring(lpBuffer, lpBuffer + size - 1); // We don't want the '\0' inside
+}
+
+TCHAR SysInfoUtils::ToLower(TCHAR c)
+{
+#if defined(UNICODE)
+	return static_cast<TCHAR>(::towlower(c));
+#else
+	return ::tolower(c);
+#endif
 }
 
 // From device file name to DOS filename
@@ -54,7 +70,10 @@ BOOL SysInfoUtils::GetFsFileName(LPCTSTR lpDeviceFileName, _tstring& fsFileName)
 {
 	BOOL rc = FALSE;
 
-	TCHAR lpDeviceName[0x1000];
+	unsigned uDeviceNameSize = 0x1000;
+	std::unique_ptr<TCHAR[]> bufDeviceName(new TCHAR[uDeviceNameSize + 1]{ '\0' });
+	auto lpDeviceName = bufDeviceName.get();
+
 	TCHAR lpDrive[3] = _T("A:");
 
 	// Iterating through the drive letters
@@ -73,7 +92,9 @@ BOOL SysInfoUtils::GetFsFileName(LPCTSTR lpDeviceFileName, _tstring& fsFileName)
 				TCHAR cDriveLetter;
 				DWORD dwParam;
 
-				TCHAR lpSharedName[0x1000];
+				unsigned uSharedNameSize = 0x1000;
+				std::unique_ptr<TCHAR[]> bufSharedName(new TCHAR[uSharedNameSize + 1]{ '\0' });
+				auto lpSharedName = bufSharedName.get();
 
 				if (_stscanf_s(lpDeviceName,
 					_T("\\Device\\LanmanRedirector\\;%c:%d\\%s"),
@@ -81,11 +102,11 @@ BOOL SysInfoUtils::GetFsFileName(LPCTSTR lpDeviceFileName, _tstring& fsFileName)
 					(unsigned)sizeof(cDriveLetter),
 					&dwParam,
 					lpSharedName,
-					(unsigned)sizeof(lpSharedName)) != 3)
+					uSharedNameSize) != 3)
 					continue;
 
-				_tcscpy_s(lpDeviceName, _T("\\Device\\LanmanRedirector\\"));
-				_tcscat_s(lpDeviceName, lpSharedName);
+				_tcscpy_s(lpDeviceName, uDeviceNameSize, _T("\\Device\\LanmanRedirector\\"));
+				_tcscat_s(lpDeviceName, uDeviceNameSize, lpSharedName);
 			}
 
 			// Is this the drive letter we are looking for?
@@ -115,7 +136,9 @@ BOOL SysInfoUtils::GetDeviceFileName(LPCTSTR lpFsFileName, _tstring& deviceFileN
 	_tcsncpy_s(lpDrive, lpFsFileName, 2);
 	lpDrive[2] = _T('\0');
 
-	TCHAR lpDeviceName[0x1000];
+	unsigned uDeviceNameSize = 0x1000;
+	std::unique_ptr<TCHAR[]> bufDeviceName(new TCHAR[uDeviceNameSize + 1]{ '\0' });
+	auto lpDeviceName = bufDeviceName.get();
 
 	// Query the device for the drive letter
 	if (QueryDosDevice(lpDrive, lpDeviceName, 0x1000) != 0)
@@ -128,7 +151,7 @@ BOOL SysInfoUtils::GetDeviceFileName(LPCTSTR lpFsFileName, _tstring& deviceFileN
 
 			return TRUE;
 		}
-		else
+		else {
 			// Network drive?
 			if (_tcsnicmp(_T("\\Device\\LanmanRedirector\\"), lpDeviceName, 25) == 0)
 			{
@@ -137,7 +160,9 @@ BOOL SysInfoUtils::GetDeviceFileName(LPCTSTR lpFsFileName, _tstring& deviceFileN
 				TCHAR cDriveLetter;
 				DWORD dwParam;
 
-				TCHAR lpSharedName[0x1000];
+				unsigned uSharedNameSize = 0x1000;
+				std::unique_ptr<TCHAR[]> bufSharedName(new TCHAR[uSharedNameSize + 1]{ '\0' });
+				auto lpSharedName = bufSharedName.get();
 
 				if (_stscanf_s(lpDeviceName,
 					_T("\\Device\\LanmanRedirector\\;%c:%d\\%s"),
@@ -145,14 +170,15 @@ BOOL SysInfoUtils::GetDeviceFileName(LPCTSTR lpFsFileName, _tstring& deviceFileN
 					(unsigned)sizeof(cDriveLetter),
 					&dwParam,
 					lpSharedName,
-					(unsigned)sizeof(lpSharedName)) != 3)
+					uSharedNameSize) != 3)
 					return FALSE;
 
-				_tcscpy_s(lpDeviceName, _T("\\Device\\LanmanRedirector\\"));
-				_tcscat_s(lpDeviceName, lpSharedName);
+				_tcscpy_s(lpDeviceName, uDeviceNameSize, _T("\\Device\\LanmanRedirector\\"));
+				_tcscat_s(lpDeviceName, uDeviceNameSize, bufSharedName.get());
 			}
+		}
 
-		_tcscat_s(lpDeviceName, lpFsFileName + 2);
+		_tcscat_s(lpDeviceName, uDeviceNameSize, lpFsFileName + 2);
 
 		deviceFileName = lpDeviceName;
 
@@ -211,15 +237,14 @@ BOOL INtDll::Init()
 //
 //////////////////////////////////////////////////////////////////////////////////////
 
-SysProcessInformation::SysProcessInformation(BOOL bRefresh)
+SysProcessInformation::SysProcessInformation(BOOL bRefresh, LPCTSTR lpNameFilter)
+	: m_pCurrentProcessInfo(NULL)
 {
-	m_pBuffer = (UCHAR*)VirtualAlloc((void*)0x100000,
-		BufferSize,
-		MEM_COMMIT,
-		PAGE_READWRITE);
+	m_nBufferSize = 0x10000;
+	m_pBuffer = (UCHAR*)VirtualAlloc(NULL, m_nBufferSize, MEM_COMMIT, PAGE_READWRITE);
 
-	if (bRefresh)
-		Refresh();
+	// Set the filter
+	SetNameFilter(lpNameFilter, bRefresh);
 }
 
 SysProcessInformation::~SysProcessInformation()
@@ -227,33 +252,81 @@ SysProcessInformation::~SysProcessInformation()
 	VirtualFree(m_pBuffer, 0, MEM_RELEASE);
 }
 
+BOOL SysProcessInformation::SetNameFilter(LPCTSTR lpNameFilter, BOOL bRefresh)
+{
+	// Set the filter (default = all filters)
+	m_strNameFilter = lpNameFilter == NULL ? _T("") : lpNameFilter;
+
+	std::transform(m_strNameFilter.begin(), m_strNameFilter.end(), m_strNameFilter.begin(), SysInfoUtils::ToLower);
+
+	return bRefresh ? Refresh() : TRUE;
+}
+
 BOOL SysProcessInformation::Refresh()
 {
 	m_ProcessInfos.clear();
 	m_pCurrentProcessInfo = NULL;
 
-	if (!NtDllStatus || m_pBuffer == NULL)
+	if (!NtDllStatus || m_pBuffer == NULL) {
 		return FALSE;
+	}
+
+	NTSTATUS status;
+	DWORD needed = 0;
 
 	// query the process information
-	if (INtDll::NtQuerySystemInformation(5, m_pBuffer, BufferSize, NULL) != 0)
+	while ((status = INtDll::NtQuerySystemInformation(SystemProcessInformation, m_pBuffer, m_nBufferSize, &needed)) != 0) {
+		if (status != STATUS_INFO_LENGTH_MISMATCH || needed == 0)
+		{
+			return FALSE;
+		}
+
+		if (m_pBuffer == NULL) {
+			return FALSE;
+		}
+
+		VirtualFree(m_pBuffer, 0, MEM_RELEASE);
+
+		m_nBufferSize = needed;
+		m_pBuffer = (UCHAR*)VirtualAlloc(NULL, m_nBufferSize, MEM_COMMIT, PAGE_READWRITE);
+	}
+
+	if (m_pBuffer == NULL) {
 		return FALSE;
+	}
 
 	DWORD currentProcessID = GetCurrentProcessId(); //Current Process ID
+	_tstring strName;
 
 	SYSTEM_PROCESS_INFORMATION* pSysProcess = (SYSTEM_PROCESS_INFORMATION*)m_pBuffer;
 	do
 	{
-		// fill the process information map
-		m_ProcessInfos.insert(std::make_pair(pSysProcess->dUniqueProcessId, pSysProcess));
+		BOOL bAdd = FALSE;
+
+		if (m_strNameFilter == _T("")) {
+			bAdd = TRUE;
+		}
+		else if (pSysProcess->ImageName.Length > 0) {
+			strName = SysInfoUtils::Unicode2String(&pSysProcess->ImageName);
+
+			std::transform(strName.begin(), strName.end(), strName.begin(), SysInfoUtils::ToLower);
+
+			bAdd = strName == m_strNameFilter;
+		}
+
+		if (bAdd) {
+			// fill the process information map
+			m_ProcessInfos.insert(std::make_pair((DWORD)pSysProcess->UniqueProcessId, pSysProcess));
+		}
 
 		// we found this process
-		if (pSysProcess->dUniqueProcessId == currentProcessID)
+		if ((DWORD)pSysProcess->UniqueProcessId == currentProcessID) {
 			m_pCurrentProcessInfo = pSysProcess;
+		}
 
 		// get the next process information block
-		if (pSysProcess->dNext != 0)
-			pSysProcess = (SYSTEM_PROCESS_INFORMATION*)((UCHAR*)pSysProcess + pSysProcess->dNext);
+		if (pSysProcess->NextEntryOffset != 0)
+			pSysProcess = (SYSTEM_PROCESS_INFORMATION*)((UCHAR*)pSysProcess + pSysProcess->NextEntryOffset);
 		else
 			pSysProcess = NULL;
 
@@ -272,34 +345,38 @@ SysThreadInformation::SysThreadInformation(DWORD pID, BOOL bRefresh)
 {
 	m_processId = pID;
 
-	if (bRefresh)
+	if (bRefresh) {
 		Refresh();
+	}
 }
 
 BOOL SysThreadInformation::Refresh()
 {
 	// Get the Thread objects ( set the filter to "Thread" )
-	SysHandleInformation hi(m_processId);
+	SysHandleInformation hi(TRUE);
+	hi.AddProcessFilter(m_processId);
 	BOOL rc = hi.SetTypeFilter(_T("Thread"), TRUE);
 
 	m_ThreadInfos.clear();
 
-	if (!rc)
+	if (!rc) {
 		return FALSE;
+	}
 
 	THREAD_INFORMATION ti;
 
 	// Iterating through the found Thread objects
-	for (std::list<SysHandleInformation::SYSTEM_HANDLE >::const_iterator it = hi.m_HandleInfos.begin(); it != hi.m_HandleInfos.end(); ++it)
+	for (std::list<SYSTEM_HANDLE_TABLE_ENTRY_INFO >::const_iterator it = hi.m_HandleInfos.begin(); it != hi.m_HandleInfos.end(); ++it)
 	{
-		const SysHandleInformation::SYSTEM_HANDLE& h = *it;
+		const SYSTEM_HANDLE_TABLE_ENTRY_INFO& h = *it;
 
-		ti.ProcessId = h.ProcessID;
-		ti.ThreadHandle = (HANDLE)h.HandleNumber;
+		ti.ProcessId = h.UniqueProcessId;
+		ti.ThreadHandle = (HANDLE)h.HandleValue;
 
-		// This is one of the threads we are lokking for
-		if (SysHandleInformation::GetThreadId(ti.ThreadHandle, ti.ThreadId, ti.ProcessId))
+		// This is one of the threads we are looking for
+		if (SysHandleInformation::GetThreadId(ti.ThreadHandle, ti.ThreadId, ti.ProcessId)) {
 			m_ThreadInfos.push_back(ti);
+		}
 	}
 
 	return TRUE;
@@ -311,9 +388,9 @@ BOOL SysThreadInformation::Refresh()
 //
 //////////////////////////////////////////////////////////////////////////////////////
 
-SysHandleInformation::SysHandleInformation(DWORD pID, BOOL bRefresh, LPCTSTR lpTypeFilter)
+SysHandleInformation::SysHandleInformation(BOOL bUseProcessFilters, BOOL bRefresh, LPCTSTR lpTypeFilter)
 {
-	m_processId = pID;
+	m_UseProcessFilters = bUseProcessFilters;
 
 	// Set the filter
 	SetTypeFilter(lpTypeFilter, bRefresh);
@@ -323,10 +400,22 @@ SysHandleInformation::~SysHandleInformation()
 {
 }
 
+void SysHandleInformation::AddProcessFilter(DWORD dwProcessID)
+{
+	m_ProcessFilters.insert(dwProcessID);
+}
+
+void SysHandleInformation::ResetProcessFilters()
+{
+	m_ProcessFilters.clear();
+}
+
 BOOL SysHandleInformation::SetTypeFilter(LPCTSTR lpTypeFilter, BOOL bRefresh)
 {
 	// Set the filter ( default = all objects )
 	m_strTypeFilter = lpTypeFilter == NULL ? _T("") : lpTypeFilter;
+
+	std::transform(m_strTypeFilter.begin(), m_strTypeFilter.end(), m_strTypeFilter.begin(), SysInfoUtils::ToLower);
 
 	return bRefresh ? Refresh() : TRUE;
 }
@@ -346,23 +435,31 @@ BOOL SysHandleInformation::Refresh()
 
 	m_HandleInfos.clear();
 
-	if (!INtDll::NtDllStatus)
+	if (!INtDll::NtDllStatus) {
 		return FALSE;
+	}
 
 	// Allocate the memory for the buffer
 	SYSTEM_HANDLE_INFORMATION* pSysHandleInformation = (SYSTEM_HANDLE_INFORMATION*)
 		VirtualAlloc(NULL, size, MEM_COMMIT, PAGE_READWRITE);
 
-	if (pSysHandleInformation == NULL)
+	if (pSysHandleInformation == NULL) {
 		return FALSE;
+	}
+
+	NTSTATUS status;
 
 	// Query the needed buffer size for the objects ( system wide )
-	if (INtDll::NtQuerySystemInformation(16, pSysHandleInformation, size, &needed) != 0)
+	while ((status = INtDll::NtQuerySystemInformation(SystemHandleInformation, pSysHandleInformation, size, &needed)) != 0)
 	{
-		if (needed == 0)
+		if (status != STATUS_INFO_LENGTH_MISMATCH || needed == 0)
 		{
 			ret = FALSE;
 			goto cleanup;
+		}
+
+		if (pSysHandleInformation == NULL) {
+			return FALSE;
 		}
 
 		// The size was not enough
@@ -372,36 +469,28 @@ BOOL SysHandleInformation::Refresh()
 			VirtualAlloc(NULL, size = needed + 256, MEM_COMMIT, PAGE_READWRITE);
 	}
 
-	if (pSysHandleInformation == NULL)
+	if (pSysHandleInformation == NULL) {
 		return FALSE;
-
-	// Query the objects ( system wide )
-	if (INtDll::NtQuerySystemInformation(16, pSysHandleInformation, size, NULL) != 0)
-	{
-		ret = FALSE;
-		goto cleanup;
 	}
 
 	// Iterating through the objects
-	for (i = 0; i < pSysHandleInformation->Count; i++)
+	for (i = 0; i < pSysHandleInformation->NumberOfHandles; i++)
 	{
 		// ProcessId filtering check
-		if (pSysHandleInformation->Handles[i].ProcessID == m_processId || m_processId == (DWORD)-1)
+		if (!m_UseProcessFilters || m_ProcessFilters.find((DWORD)pSysHandleInformation->Handles[i].UniqueProcessId) != m_ProcessFilters.end())
 		{
 			BOOL bAdd = FALSE;
 
-			if (m_strTypeFilter == _T(""))
+			if (m_strTypeFilter == _T("")) {
 				bAdd = TRUE;
-			else
-			{
+			}
+			else {
 				strType = _T("");
 
 				// Type filtering
-				GetTypeToken((HANDLE)pSysHandleInformation->Handles[i].HandleNumber, strType, pSysHandleInformation->Handles[i].ProcessID);
+				GetTypeToken((HANDLE)pSysHandleInformation->Handles[i].HandleValue, strType, pSysHandleInformation->Handles[i].UniqueProcessId);
 
-				if (strType.length() > 0) {
-					_tprintf(_T("Type: %s\n"), strType.c_str());
-				}
+				std::transform(strType.begin(), strType.end(), strType.begin(), SysInfoUtils::ToLower);
 
 				bAdd = strType == m_strTypeFilter;
 			}
@@ -409,7 +498,7 @@ BOOL SysHandleInformation::Refresh()
 			// That's it. We found one.
 			if (bAdd)
 			{
-				pSysHandleInformation->Handles[i].HandleType = (WORD)(pSysHandleInformation->Handles[i].HandleType % 256);
+				//pSysHandleInformation->Handles[i].HandleType = (WORD)(pSysHandleInformation->Handles[i].HandleType % 256);
 
 				m_HandleInfos.push_back(pSysHandleInformation->Handles[i]);
 
@@ -419,8 +508,9 @@ BOOL SysHandleInformation::Refresh()
 
 cleanup:
 
-	if (pSysHandleInformation != NULL)
+	if (pSysHandleInformation != NULL) {
 		VirtualFree(pSysHandleInformation, 0, MEM_RELEASE);
+	}
 
 	return ret;
 }
@@ -445,15 +535,15 @@ HANDLE SysHandleInformation::DuplicateHandle(HANDLE hProcess, HANDLE hRemote)
 BOOL SysHandleInformation::GetTypeToken(HANDLE h, _tstring& str, DWORD processId)
 {
 	ULONG size = 0; //0x2000;
-	UCHAR* lpBuffer = NULL;
 	BOOL ret = FALSE;
 
 	HANDLE handle;
 	HANDLE hRemoteProcess = NULL;
 	BOOL remote = processId != GetCurrentProcessId();
 
-	if (!NtDllStatus)
+	if (!NtDllStatus) {
 		return FALSE;
+	}
 
 	if (remote)
 	{
@@ -466,34 +556,38 @@ BOOL SysHandleInformation::GetTypeToken(HANDLE h, _tstring& str, DWORD processId
 		// Duplicate the handle
 		handle = DuplicateHandle(hRemoteProcess, h);
 	}
-	else
+	else {
 		handle = h;
+	}
 
 	// Query the info size
-	NTSTATUS status = INtDll::NtQueryObject(handle, 2, NULL, 0, &size);
+	NTSTATUS status = INtDll::NtQueryObject(handle, ObjectTypeInformation, NULL, 0, &size);
 
-	if (STATUS_INFO_LENGTH_MISMATCH == status && size > 0) {
-		lpBuffer = new UCHAR[size];
+	if (STATUS_INFO_LENGTH_MISMATCH == status && size > 0) 
+	{
+		std::unique_ptr<UCHAR[]> buffer(new UCHAR[size]);
+		auto lpBuffer = buffer.get();
 
 		// Query the info size ( type )
-		if (INtDll::NtQueryObject(handle, 2, lpBuffer, size, NULL) == 0)
+		if (INtDll::NtQueryObject(handle, ObjectTypeInformation, lpBuffer, size, NULL) == 0)
 		{
-			str = SysInfoUtils::LPCWSTR2String((LPCWSTR)(lpBuffer + 0x60));
-
-			ret = TRUE;
+			POBJECT_TYPE_INFORMATION pTypeInfo = (POBJECT_TYPE_INFORMATION)lpBuffer;
+			if (pTypeInfo->TypeName.Length > 0 && pTypeInfo->TypeName.Buffer != NULL) {
+				str = SysInfoUtils::LPCWSTR2String((LPCWSTR)(pTypeInfo->TypeName.Buffer));
+				ret = TRUE;
+			}
 		}
 
 		if (remote)
 		{
-			if (hRemoteProcess != NULL)
+			if (hRemoteProcess != NULL) {
 				CloseHandle(hRemoteProcess);
+			}
 
-			if (handle != NULL)
+			if (handle != NULL) {
 				CloseHandle(handle);
+			}
 		}
-
-		if (lpBuffer != NULL)
-			delete[] lpBuffer;
 	}
 
 	return ret;
@@ -505,8 +599,9 @@ BOOL SysHandleInformation::GetType(HANDLE h, WORD& type, DWORD processId)
 
 	type = OB_TYPE_UNKNOWN;
 
-	if (!GetTypeToken(h, strType, processId))
+	if (!GetTypeToken(h, strType, processId)) {
 		return FALSE;
+	}
 
 	return GetTypeFromTypeToken(strType.c_str(), type);
 }
@@ -524,12 +619,13 @@ BOOL SysHandleInformation::GetTypeFromTypeToken(LPCTSTR typeToken, WORD& type)
 
 	type = OB_TYPE_UNKNOWN;
 
-	for (WORD i = 1; i < count; i++)
+	for (WORD i = 1; i < count; i++) {
 		if (constStrTypes[i] == typeToken)
 		{
 			type = i;
 			return TRUE;
 		}
+	}
 
 	return FALSE;
 }
@@ -538,8 +634,9 @@ BOOL SysHandleInformation::GetName(HANDLE handle, _tstring& str, DWORD processId
 {
 	WORD type = 0;
 
-	if (!GetType(handle, type, processId))
+	if (!GetType(handle, type, processId)) {
 		return FALSE;
+	}
 
 	return GetNameByType(handle, type, str, processId);
 }
@@ -547,7 +644,6 @@ BOOL SysHandleInformation::GetName(HANDLE handle, _tstring& str, DWORD processId
 BOOL SysHandleInformation::GetNameByType(HANDLE h, WORD type, _tstring& str, DWORD processId)
 {
 	ULONG size = 0x2000;
-	UCHAR* lpBuffer = NULL;
 	BOOL ret = FALSE;
 
 	HANDLE handle;
@@ -555,79 +651,85 @@ BOOL SysHandleInformation::GetNameByType(HANDLE h, WORD type, _tstring& str, DWO
 	BOOL remote = processId != GetCurrentProcessId();
 	DWORD dwId = 0;
 
-	if (!NtDllStatus)
+	if (!NtDllStatus) {
 		return FALSE;
+	}
 
 	if (remote)
 	{
 		hRemoteProcess = OpenProcess(processId);
 
-		if (hRemoteProcess == NULL)
+		if (hRemoteProcess == NULL) {
 			return FALSE;
+		}
 
 		handle = DuplicateHandle(hRemoteProcess, h);
 	}
-	else
+	else {
 		handle = h;
+	}
 
 	// let's be happy, handle is in our process space, so query the infos :)
 	switch (type)
 	{
-	case OB_TYPE_PROCESS:
-		GetProcessId(handle, dwId);
+		case OB_TYPE_PROCESS:
+			GetProcessId(handle, dwId);
 
-		str = SysInfoUtils::StringFormat(_T("PID: 0x%X"), dwId);
+			str = SysInfoUtils::StringFormat(_T("PID: 0x%X"), dwId);
 
-		ret = TRUE;
-		goto cleanup;
-		break;
-
-	case OB_TYPE_THREAD:
-		GetThreadId(handle, dwId);
-
-		str = SysInfoUtils::StringFormat(_T("TID: 0x%X"), dwId);
-
-		ret = TRUE;
-		goto cleanup;
-		break;
-
-	case OB_TYPE_FILE:
-		ret = GetFileName(handle, str);
-
-		// access denied :(
-		if (ret && str == _T(""))
+			ret = TRUE;
 			goto cleanup;
-		break;
+			break;
 
+		case OB_TYPE_THREAD:
+			GetThreadId(handle, dwId);
+
+			str = SysInfoUtils::StringFormat(_T("TID: 0x%X"), dwId);
+
+			ret = TRUE;
+			goto cleanup;
+			break;
+
+		case OB_TYPE_FILE:
+			ret = GetFileName(handle, str);
+
+			// access denied :(
+			if (ret && str == _T("")) {
+				goto cleanup;
+			}
+			break;
 	};
 
-	INtDll::NtQueryObject(handle, 1, NULL, 0, &size);
+	INtDll::NtQueryObject(handle, ObjectNameInformation, NULL, 0, &size);
 
 	// let's try to use the default
-	if (size == 0)
+	if (size == 0) {
 		size = 0x2000;
+	}
 
-	lpBuffer = new UCHAR[size];
-
-	if (INtDll::NtQueryObject(handle, 1, lpBuffer, size, NULL) == 0)
 	{
-		str = SysInfoUtils::Unicode2String((UNICODE_STRING*)lpBuffer);
-		ret = TRUE;
+		std::unique_ptr<UCHAR[]> buffer(new UCHAR[size]);
+		auto lpBuffer = buffer.get();
+
+		if (INtDll::NtQueryObject(handle, ObjectNameInformation, lpBuffer, size, NULL) == 0)
+		{
+			str = SysInfoUtils::Unicode2String((UNICODE_STRING*)lpBuffer);
+			ret = TRUE;
+		}
 	}
 
 cleanup:
 
 	if (remote)
 	{
-		if (hRemoteProcess != NULL)
+		if (hRemoteProcess != NULL) {
 			CloseHandle(hRemoteProcess);
+		}
 
-		if (handle != NULL)
+		if (handle != NULL) {
 			CloseHandle(handle);
+		}
 	}
-
-	if (lpBuffer != NULL)
-		delete[] lpBuffer;
 
 	return ret;
 }
@@ -635,39 +737,45 @@ cleanup:
 //Thread related functions
 BOOL SysHandleInformation::GetThreadId(HANDLE h, DWORD& threadID, DWORD processId)
 {
-	SysThreadInformation::BASIC_THREAD_INFORMATION ti;
+	THREAD_BASIC_INFORMATION ti;
 	HANDLE handle;
 	HANDLE hRemoteProcess = NULL;
 	BOOL remote = processId != GetCurrentProcessId();
 
-	if (!NtDllStatus)
+	if (!NtDllStatus) {
 		return FALSE;
+	}
 
 	if (remote)
 	{
 		// Open process
 		hRemoteProcess = OpenProcess(processId);
 
-		if (hRemoteProcess == NULL)
+		if (hRemoteProcess == NULL) {
 			return FALSE;
+		}
 
 		// Duplicate handle
 		handle = DuplicateHandle(hRemoteProcess, h);
 	}
-	else
+	else {
 		handle = h;
+	}
 
 	// Get the thread information
-	if (INtDll::NtQueryInformationThread(handle, 0, &ti, sizeof(ti), NULL) == 0)
-		threadID = ti.ThreadId;
+	if (INtDll::NtQueryInformationThread(handle, 0, &ti, sizeof(ti), NULL) == 0) {
+		threadID = (DWORD)ti.ClientId.UniqueThread;
+	}
 
 	if (remote)
 	{
-		if (hRemoteProcess != NULL)
+		if (hRemoteProcess != NULL) {
 			CloseHandle(hRemoteProcess);
+		}
 
-		if (handle != NULL)
+		if (handle != NULL) {
 			CloseHandle(handle);
+		}
 	}
 
 	return TRUE;
@@ -689,42 +797,47 @@ BOOL SysHandleInformation::GetProcessId(HANDLE h, DWORD& processId, DWORD remote
 	HANDLE handle;
 	HANDLE hRemoteProcess = NULL;
 	BOOL remote = remoteProcessId != GetCurrentProcessId();
-	SysProcessInformation::PROCESS_BASIC_INFORMATION pi;
+	PROCESS_BASIC_INFORMATION pi;
 
 	ZeroMemory(&pi, sizeof(pi));
 	processId = 0;
 
-	if (!NtDllStatus)
+	if (!NtDllStatus) {
 		return FALSE;
+	}
 
 	if (remote)
 	{
 		// Open process
 		hRemoteProcess = OpenProcess(remoteProcessId);
 
-		if (hRemoteProcess == NULL)
+		if (hRemoteProcess == NULL) {
 			return FALSE;
+		}
 
 		// Duplicate handle
 		handle = DuplicateHandle(hRemoteProcess, h);
 	}
-	else
+	else {
 		handle = h;
+	}
 
 	// Get the process information
 	if (INtDll::NtQueryInformationProcess(handle, 0, &pi, sizeof(pi), NULL) == 0)
 	{
-		processId = pi.UniqueProcessId;
+		processId = (DWORD)pi.UniqueProcessId;
 		ret = TRUE;
 	}
 
 	if (remote)
 	{
-		if (hRemoteProcess != NULL)
+		if (hRemoteProcess != NULL) {
 			CloseHandle(hRemoteProcess);
+		}
 
-		if (handle != NULL)
+		if (handle != NULL) {
 			CloseHandle(handle);
+		}
 	}
 
 	return ret;
@@ -738,13 +851,17 @@ void SysHandleInformation::GetFileNameThread(PVOID pParam)
 	// so if it times out we just kill this thread
 	GetFileNameThreadParam* p = (GetFileNameThreadParam*)pParam;
 
-	WCHAR lpBuffer[0x1000];
-	DWORD iob[2];
+	size_t bufferSize = 0x1000;
+	std::unique_ptr<TCHAR[]> buffer(new TCHAR[bufferSize + 1]{ '\0' });
+	auto lpBuffer = buffer.get();
 
-	p->rc = INtDll::NtQueryInformationFile(p->hFile, iob, lpBuffer, sizeof(lpBuffer), 9);
+	IO_STATUS_BLOCK iob;
 
-	if (p->rc == 0)
+	p->rc = INtDll::NtQueryInformationFile(p->hFile, &iob, lpBuffer, bufferSize, 9);
+
+	if (p->rc == 0) {
 		p->pName->assign(lpBuffer);
+	}
 }
 
 BOOL SysHandleInformation::GetFileName(HANDLE h, _tstring& str, DWORD processId)
@@ -756,22 +873,25 @@ BOOL SysHandleInformation::GetFileName(HANDLE h, _tstring& str, DWORD processId)
 	HANDLE hRemoteProcess = NULL;
 	BOOL remote = processId != GetCurrentProcessId();
 
-	if (!NtDllStatus)
+	if (!NtDllStatus) {
 		return FALSE;
+	}
 
 	if (remote)
 	{
 		// Open process
 		hRemoteProcess = OpenProcess(processId);
 
-		if (hRemoteProcess == NULL)
+		if (hRemoteProcess == NULL) {
 			return FALSE;
+		}
 
 		// Duplicate handle
 		handle = DuplicateHandle(hRemoteProcess, h);
 	}
-	else
+	else {
 		handle = h;
+	}
 
 	tp.hFile = handle;
 	tp.pName = &str;
@@ -797,18 +917,21 @@ BOOL SysHandleInformation::GetFileName(HANDLE h, _tstring& str, DWORD processId)
 
 		ret = TRUE;
 	}
-	else
+	else {
 		ret = (tp.rc == 0);
+	}
 
 cleanup:
 
 	if (remote)
 	{
-		if (hRemoteProcess != NULL)
+		if (hRemoteProcess != NULL) {
 			CloseHandle(hRemoteProcess);
+		}
 
-		if (handle != NULL)
+		if (handle != NULL) {
 			CloseHandle(handle);
+		}
 	}
 
 	return ret;
