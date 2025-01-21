@@ -262,6 +262,11 @@ BOOL SysProcessInformation::SetNameFilter(LPCTSTR lpNameFilter, BOOL bRefresh)
 	return bRefresh ? Refresh() : TRUE;
 }
 
+const _tstring& SysProcessInformation::GetNameFilter()
+{
+	return m_strNameFilter;
+}
+
 BOOL SysProcessInformation::Refresh()
 {
 	m_ProcessInfos.clear();
@@ -851,7 +856,7 @@ void SysHandleInformation::GetFileNameThread(PVOID pParam)
 	// so if it times out we just kill this thread
 	GetFileNameThreadParam* p = (GetFileNameThreadParam*)pParam;
 
-	size_t bufferSize = 0x1000;
+	DWORD bufferSize = 0x1000;
 	std::unique_ptr<TCHAR[]> buffer(new TCHAR[bufferSize + 1]{ '\0' });
 	auto lpBuffer = buffer.get();
 
