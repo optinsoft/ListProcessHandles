@@ -1,5 +1,12 @@
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ListProcessHandles.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
+// Author: vitaly (optinsoft), https://github.com/optinsoft
+// Created: 2025-01-21
+// License: MIT
+// Dependency: phnt from https://github.com/winsiderss/systeminformer/tree/master/phnt
+// 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <iostream>
 #include "SysInfo.h"
@@ -22,7 +29,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 		return;
 	}
 
-	for (std::unordered_map<DWORD, SYSTEM_PROCESS_INFORMATION*>::const_iterator it = pi.m_ProcessInfos.begin(); it != pi.m_ProcessInfos.end(); ++it) 
+	for (auto it = pi.m_ProcessInfos.begin(); it != pi.m_ProcessInfos.end(); ++it) 
 	{
 		DWORD dwProcessID = it->first;
 		if (bPrintProcessFilterInfo) {
@@ -51,7 +58,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 	_tstring name;
 	_tstring type;
 
-	for (std::list<SYSTEM_HANDLE_TABLE_ENTRY_INFO >::const_iterator it = hi.m_HandleInfos.begin(); it != hi.m_HandleInfos.end(); ++it) 
+	for (auto it = hi.m_HandleInfos.begin(); it != hi.m_HandleInfos.end(); ++it) 
 	{
 		const SYSTEM_HANDLE_TABLE_ENTRY_INFO& h = *it;
 		

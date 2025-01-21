@@ -1,3 +1,14 @@
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//
+// Author: vitaly (optinsoft), https://github.com/optinsoft
+// Created: 2025-01-21
+// License: MIT
+// Dependency: phnt from https://github.com/winsiderss/systeminformer/tree/master/phnt
+// 
+// This code based on SystemInfo.cpp written by Zoltan Csizmadia, zoltan_csizmadia@yahoo.com
+// 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #define UMDF_USING_NTSTATUS
 
 #include "SysInfo.h"
@@ -791,7 +802,7 @@ BOOL SysHandleInformation::GetProcessPath(HANDLE h, _tstring& strPath, DWORD rem
 {
 	h; strPath; remoteProcessId;
 
-	strPath =SysInfoUtils::StringFormat(_T("%d"), remoteProcessId);
+	strPath = SysInfoUtils::StringFormat(_T("%d"), remoteProcessId);
 
 	return TRUE;
 }
