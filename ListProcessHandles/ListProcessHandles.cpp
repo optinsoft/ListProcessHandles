@@ -13,7 +13,7 @@
 #include <tchar.h>
 
 void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, LPCTSTR lpFsPathFilter, BOOL bHandleProcessFilter, 
-	BOOL bPrintProcessFilterInfo = FALSE, BOOL bPrintFileHandleName = FALSE, BOOL bPrintFilteredProcesses = TRUE)
+	BOOL bTerminateFilteredProcesses = FALSE, BOOL bPrintProcessFilterInfo = FALSE, BOOL bPrintFileHandleName = FALSE, BOOL bPrintFilteredProcesses = TRUE)
 {
 	SysProcessInformation pi;
 	SysHandleInformation hi(bHandleProcessFilter, FALSE);
@@ -26,7 +26,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 
 	if (pi.m_ProcessInfos.size() == 0)
 	{
-		_tprintf(_T("No process information\n"));
+		_tprintf(_T("No processes found.\n"));
 		return;
 	}
 
@@ -36,8 +36,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 		if (bPrintProcessFilterInfo) {
 			SYSTEM_PROCESS_INFORMATION* pSysProcess = it->second;
 			_tstring strName = pSysProcess->ImageName.Length > 0 ? SysInfoUtils::Unicode2String(&pSysProcess->ImageName) : _T("");
-			_tstring str = SysInfoUtils::StringFormat(_T("Process ID: %lu, Name: %s\n"), dwProcessID, strName.c_str());
-			_tprintf(str.c_str());
+			_tprintf(_T("Process ID: %lu, Name: %s\n"), dwProcessID, strName.c_str());
 		}
 		if (bHandleProcessFilter) {
 			hi.AddProcessFilter(dwProcessID);
@@ -52,7 +51,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 
 	if (hi.m_HandleInfos.size() == 0)
 	{
-		_tprintf(_T("No handle information\n"));
+		_tprintf(_T("No handles found.\n"));
 		return;
 	}
 
@@ -81,14 +80,14 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 		}
 
 		if (!bFilterOut) {
-			_tstring str = bPrintFileHandleName 
-				? SysInfoUtils::StringFormat(_T("%s Handle: %hu, Process ID: %lu, Name: %s\n"), typeName.c_str(), h.HandleValue, (DWORD)h.UniqueProcessId, name.c_str())
-				: SysInfoUtils::StringFormat(_T("%s Handle: %hu, Process ID: %lu\n"), typeName.c_str(), h.HandleValue, (DWORD)h.UniqueProcessId);
-			_tprintf(str.c_str());
-
+			if (bPrintFileHandleName) {
+				_tprintf(_T("%s Handle: %hu, Process ID: %lu, Name: %s\n"), typeName.c_str(), h.HandleValue, (DWORD)h.UniqueProcessId, name.c_str());
+			} 
+			else {
+				_tprintf(_T("%s Handle: %hu, Process ID: %lu\n"), typeName.c_str(), h.HandleValue, (DWORD)h.UniqueProcessId);
+			}
 			if (fsPath != _T("")) {
-				str = SysInfoUtils::StringFormat(_T("File Path: %s\n"), fsPath.c_str());
-				_tprintf(str.c_str());
+				_tprintf(_T("File Path: %s\n"), fsPath.c_str());
 			}
 
 			filteredProcesses.insert((DWORD)h.UniqueProcessId);
@@ -97,6 +96,8 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 
 	if (bPrintFilteredProcesses) 
 	{
+		DWORD filteredCount = static_cast<DWORD>(filteredProcesses.size());
+		_tprintf(_T("%lu processes found.\n"), filteredCount);
 		for (auto it = filteredProcesses.begin(); it != filteredProcesses.end(); ++it)
 		{
 			DWORD dwProcessID = *it;
@@ -104,14 +105,34 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 			if (processInfo != pi.m_ProcessInfos.end()) {
 				SYSTEM_PROCESS_INFORMATION* pSysProcess = processInfo->second;
 				_tstring strName = pSysProcess->ImageName.Length > 0 ? SysInfoUtils::Unicode2String(&pSysProcess->ImageName) : _T("");
-				_tstring str = SysInfoUtils::StringFormat(_T("Process ID: %lu, Name: %s\n"), dwProcessID, strName.c_str());
-				_tprintf(str.c_str());
+				_tprintf(_T("Process ID: %lu, Name: %s\n"), dwProcessID, strName.c_str());
 			}
 			else {
-				_tstring str = SysInfoUtils::StringFormat(_T("Process ID: %lu, Process info not found!\n"), dwProcessID);
-				_tprintf(str.c_str());
+				_tprintf(_T("Process ID: %lu, Process info not found!\n"), dwProcessID);
 			}
 		}
+	}
+
+	if (bTerminateFilteredProcesses) {
+		for (auto it = filteredProcesses.begin(); it != filteredProcesses.end(); ++it)
+		{
+			DWORD dwProcessID = *it;
+			auto hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, dwProcessID);
+			if (hProcess != NULL) {
+				UINT uExitCode = 1;
+				if (!TerminateProcess(hProcess, uExitCode)) {
+					_tprintf(_T("Process ID: %lu, TerminateProcess() failed with error %lu\n"), dwProcessID, GetLastError());
+				}
+				else {
+					_tprintf(_T("Process ID: %lu, process has been terminated with exit code %lu\n"), dwProcessID, uExitCode);
+				}
+				CloseHandle(hProcess);
+			}
+			else {
+				_tprintf(_T("Process ID: %lu, OpenProcess() failed with error %lu\n"), dwProcessID, GetLastError());
+			}
+		}
+
 	}
 }
 
