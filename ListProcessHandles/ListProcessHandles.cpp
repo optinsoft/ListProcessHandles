@@ -11,6 +11,8 @@
 #include <iostream>
 #include "SysInfo.h"
 #include <tchar.h>
+#include <vector>
+#include <cstdlib>
 
 _tstring format_file_time(FILETIME& ft, const LPCTSTR lpPrefix, BOOL bConvertToLocal = TRUE)
 {
@@ -289,7 +291,137 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 	}
 }
 
-int main()
+void ShowUsage(BOOL bHelp)
 {
-	list_processes_and_handles(_T("firefox.exe"), _T("File"), _T("\\Profiles\\"), TRUE, TRUE, 100, 300);
+	_tprintf(_T("usage: listph.exe [-h] (-p NAME | -t TYPE) [-f PATH] [--terminate] [--mem-size MEM_SIZE] [--running-time TIME] [--silent]\n"));
+	if (bHelp)
+	{
+		_tprintf(_T("\n"));
+		_tprintf(_T("List Process Handles v1.0\n"));
+		_tprintf(_T("Opt-In Software, https://github.com/optinsoft/ListProcessHandles\n"));
+		_tprintf(_T("\n"));
+		_tprintf(_T("options:\n"));
+		_tprintf(_T("  -h, --help                        show this help message and exit\n"));
+		_tprintf(_T("  -p [NAME], --process-name [NAME]  filter processes whose name is NAME\n"));
+		_tprintf(_T("  -t [TYPE], --handle-type [TYPE]   filter handles whose type is TYPE\n"));
+		_tprintf(_T("  -f [PATH], --file-path [PATH]     filter file handles that contain PATH in their path\n"));
+		_tprintf(_T("  --terminate                       terminate filtered processes\n"));
+		_tprintf(_T("  --mem-size [MEM_SIZE]             terminate filtered processes that consume more memory than MEM_SIZE (in megabytes)\n"));
+		_tprintf(_T("  --running-time [TIME]             terminate filtered processes that run longer than TIME (in seconds)\n"));
+		_tprintf(_T("  --silent                          silent terminate mode\n"));
+		_tprintf(_T("\n"));
+		_tprintf(_T("handle types:\n"));
+		_tprintf(_T("  Directory\n"));
+		_tprintf(_T("  SymbolicLink\n"));
+		_tprintf(_T("  Token\n"));
+		_tprintf(_T("  Process\n"));
+		_tprintf(_T("  Thread\n"));
+		_tprintf(_T("  Event\n"));
+		_tprintf(_T("  EventPair\n"));
+		_tprintf(_T("  Mutant\n"));
+		_tprintf(_T("  Semaphore\n"));
+		_tprintf(_T("  Timer\n"));
+		_tprintf(_T("  Profile\n"));
+		_tprintf(_T("  WindowStation\n"));
+		_tprintf(_T("  Desktop\n"));
+		_tprintf(_T("  Section\n"));
+		_tprintf(_T("  Key\n"));
+		_tprintf(_T("  Port\n"));
+		_tprintf(_T("  WaitablePort\n"));
+		_tprintf(_T("  IoCompletion\n"));
+		_tprintf(_T("  File\n"));
+	}
+}
+
+int _tmain(int argc, TCHAR** argv)
+{
+	std::vector<_tstring> args(argv + 1, argv + argc);
+
+	_tstring processName = _T("");
+	_tstring handleType = _T("");
+	_tstring filePath = _T("");
+	BOOL terminateFilteredProcesses = FALSE;
+	DWORD terminateMemSizeMB = 0;
+	DWORD terminateRunningTime = 0;
+	BOOL silentTerminate = FALSE;
+
+	for (auto i = args.begin(); i != args.end(); ++i)
+	{
+		_tstring argname = *i;
+		if (argname == _T("-h") || argname == _T("--help")) {
+			ShowUsage(TRUE);
+			return 0;
+		}
+		else if (argname == _T("-p") || argname == _T("--process-name"))
+		{
+			if (++i == args.end()) {
+				_tprintf(_T("error: argument %s value is missing\n"), argname.c_str());
+				return 1;
+			}
+			processName = *i;
+		}
+		else if (argname == _T("-t") || argname == _T("--handle-type"))
+		{
+			if (++i == args.end()) {
+				_tprintf(_T("error: argument %s value is missing\n"), argname.c_str());
+				return 1;
+			}
+			handleType = *i;
+		}
+		else if (argname == _T("-f") || *i == _T("--file-path"))
+		{
+			if (++i == args.end()) {
+				_tprintf(_T("error: argument %s value is missing\n"), argname.c_str());
+				return 1;
+			}
+			filePath = *i;
+		}
+		else if (argname == _T("--terminate"))
+		{
+			terminateFilteredProcesses = TRUE;
+		}
+		else if (argname == _T("--mem-size"))
+		{
+			if (++i == args.end()) {
+				_tprintf(_T("error: argument %s value is missing\n"), argname.c_str());
+				return 1;
+			}
+			_set_errno(0);
+			terminateMemSizeMB = _tcstoul((*i).c_str(), NULL, 10);
+			if (errno != 0) {
+				_tprintf(_T("error: invalid argument %s value\n"), argname.c_str());
+			}
+		}
+		else if (argname == _T("--running-time"))
+		{
+			if (++i == args.end()) {
+				_tprintf(_T("error: argument %s value is missing\n"), argname.c_str());
+				return 1;
+			}
+			_set_errno(0);
+			terminateRunningTime = _tcstoul((*i).c_str(), NULL, 10);
+			if (errno != 0) {
+				_tprintf(_T("error: invalid argument %s value\n"), argname.c_str());
+			}
+		}
+		else if (argname == _T("--silent"))
+		{
+			silentTerminate = TRUE;
+		}
+		else {
+			ShowUsage(FALSE);
+			_tprintf(_T("error: unknown argument %s\n"), argname.c_str());
+			return 1;
+		}
+	}
+
+	if (!processName.length() && !handleType.length() && !filePath.length()) 
+	{
+		ShowUsage(FALSE);
+		_tprintf(_T("error: at least one of arguments required: -p/--process-name, -t/--handle-type\n"));
+		return 1;
+	}
+
+	list_processes_and_handles(processName.c_str(), handleType.c_str(), filePath.c_str(), TRUE, 
+		terminateFilteredProcesses, terminateMemSizeMB, terminateRunningTime, silentTerminate);
 }
