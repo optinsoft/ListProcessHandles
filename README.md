@@ -20,7 +20,7 @@
 ## Usage
 
 ```shell
-listph.exe [-h] (-p NAME | -t TYPE) [-f PATH] [--terminate] [--mem-size MEM_SIZE] [--running-time TIME] [--silent]
+listph.exe [-h] (-p NAME | -t TYPE) [-f PATH] [--terminate] [--mem-size MEM_SIZE] [--running-time TIME] [--silent] [--print-handles yes/no]
 ```
 
 ### options
@@ -34,6 +34,7 @@ listph.exe [-h] (-p NAME | -t TYPE) [-f PATH] [--terminate] [--mem-size MEM_SIZE
   --mem-size [MEM_SIZE]             terminate filtered processes that consume more memory than MEM_SIZE (in megabytes)
   --running-time [TIME]             terminate filtered processes that run longer than TIME (in seconds)
   --silent                          silent terminate mode
+  --print-handles [yes/no]          print filtered handles info; default: yes
 ```
 
 ### handle types

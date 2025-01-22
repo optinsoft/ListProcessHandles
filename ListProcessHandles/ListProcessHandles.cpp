@@ -102,7 +102,7 @@ void print_process_info(DWORD dwProcessID, SYSTEM_PROCESS_INFORMATION* pSysProce
 
 void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, LPCTSTR lpFsPathFilter, BOOL bHandleProcessFilter = TRUE, 
 	BOOL bTerminateFilteredProcesses = FALSE, DWORD dwTerminateMemSizeMB = 0, DWORD dwTerminateRunningTime = 0, BOOL bSilentTerminate = FALSE,
-	BOOL bPrintProcessFilterInfo = FALSE, BOOL bPrintFileHandleName = FALSE, BOOL bPrintFilteredProcesses = TRUE)
+	BOOL bPrintHandleInfo = TRUE, BOOL bPrintProcessFilterInfo = FALSE, BOOL bPrintFileHandleName = FALSE, BOOL bPrintFilteredProcesses = TRUE)
 {
 	FILETIME CurrentTime;
 	GetSystemTimeAsFileTime(&CurrentTime);
@@ -174,14 +174,16 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 		}
 
 		if (!bFilterOut) {
-			if (bPrintFileHandleName) {
-				_tprintf(_T("%s Handle: %hu, PID: %lu, Name: %s\n"), typeName.c_str(), h.HandleValue, dwProcessID, name.c_str());
-			} 
-			else {
-				_tprintf(_T("%s Handle: %hu, PID: %lu\n"), typeName.c_str(), h.HandleValue, dwProcessID);
-			}
-			if (fsPath != _T("")) {
-				_tprintf(_T("File Path: %s\n"), fsPath.c_str());
+			if (bPrintHandleInfo) {
+				if (bPrintFileHandleName) {
+					_tprintf(_T("%s Handle: %hu, PID: %lu, Name: %s\n"), typeName.c_str(), h.HandleValue, dwProcessID, name.c_str());
+				}
+				else {
+					_tprintf(_T("%s Handle: %hu, PID: %lu\n"), typeName.c_str(), h.HandleValue, dwProcessID);
+				}
+				if (fsPath != _T("")) {
+					_tprintf(_T("File Path: %s\n"), fsPath.c_str());
+				}
 			}
 			auto inserted = filteredProcesses.insert(dwProcessID);
  			if (bTerminateFilteredProcesses && inserted.second)
@@ -293,7 +295,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 
 void ShowUsage(BOOL bHelp)
 {
-	_tprintf(_T("usage: listph.exe [-h] (-p NAME | -t TYPE) [-f PATH] [--terminate] [--mem-size MEM_SIZE] [--running-time TIME] [--silent]\n"));
+	_tprintf(_T("usage: listph.exe [-h] (-p NAME | -t TYPE) [-f PATH] [--terminate] [--mem-size MEM_SIZE] [--running-time TIME] [--silent] [--print-handles yes/no]\n"));
 	if (bHelp)
 	{
 		_tprintf(_T("\n"));
@@ -309,6 +311,7 @@ void ShowUsage(BOOL bHelp)
 		_tprintf(_T("  --mem-size [MEM_SIZE]             terminate filtered processes that consume more memory than MEM_SIZE (in megabytes)\n"));
 		_tprintf(_T("  --running-time [TIME]             terminate filtered processes that run longer than TIME (in seconds)\n"));
 		_tprintf(_T("  --silent                          silent terminate mode\n"));
+		_tprintf(_T("  --print-handles [yes/no]          print filtered handles info; default: yes\n"));
 		_tprintf(_T("\n"));
 		_tprintf(_T("handle types:\n"));
 		_tprintf(_T("  Directory\n"));
@@ -344,6 +347,7 @@ int _tmain(int argc, TCHAR** argv)
 	DWORD terminateMemSizeMB = 0;
 	DWORD terminateRunningTime = 0;
 	BOOL silentTerminate = FALSE;
+	BOOL printHandles = TRUE;
 
 	for (auto i = args.begin(); i != args.end(); ++i)
 	{
@@ -408,6 +412,22 @@ int _tmain(int argc, TCHAR** argv)
 		{
 			silentTerminate = TRUE;
 		}
+		else if (argname == _T("--print-handles"))
+		{
+			if (++i == args.end()) {
+				_tprintf(_T("error: argument %s value is missing\n"), argname.c_str());
+				return 1;
+			}
+			if (*i == _T("yes")) {
+				printHandles = TRUE;
+			}
+			else if (*i == _T("no")) {
+				printHandles = FALSE;
+			}
+			else {
+				_tprintf(_T("error: invalid argument %s value\n"), argname.c_str());
+			}
+		}
 		else {
 			ShowUsage(FALSE);
 			_tprintf(_T("error: unknown argument %s\n"), argname.c_str());
@@ -423,5 +443,6 @@ int _tmain(int argc, TCHAR** argv)
 	}
 
 	list_processes_and_handles(processName.c_str(), handleType.c_str(), filePath.c_str(), TRUE, 
-		terminateFilteredProcesses, terminateMemSizeMB, terminateRunningTime, silentTerminate);
+		terminateFilteredProcesses, terminateMemSizeMB, terminateRunningTime, silentTerminate, 
+		printHandles);
 }
