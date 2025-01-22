@@ -76,27 +76,30 @@ _tstring format_running_time(FILETIME* pStartTime, FILETIME* pCurrentTime)
 	return result;
 }
 
-void print_process_info(DWORD dwProcessID, SYSTEM_PROCESS_INFORMATION* pSysProcess, SysHandleInformation* pHi, FILETIME* pCurrentTime)
+void print_process_info(DWORD dwProcessID, SYSTEM_PROCESS_INFORMATION* pSysProcess, SysHandleInformation* pHi, FILETIME* pCurrentTime, BOOL bTerminate)
 {
 	_tstring strName = pSysProcess->ImageName.Length > 0 ? SysInfoUtils::Unicode2String(&pSysProcess->ImageName) : _T("");
+	auto u64MemSize = pSysProcess->WorkingSetPrivateSize.QuadPart;
+	DWORD dwMemSizeMB = (DWORD)(u64MemSize >> 20);
+	DWORD dwMemSizeDP = (DWORD)(u64MemSize & 0xFFFFF) * 10 / 0x100000;
 	FILETIME CreationTime, ExitTime, KernelTime, UserTime;
 	BOOL bProcessTimes = pHi->GetProcessTimes((HANDLE)-1, &CreationTime, &ExitTime, &KernelTime, &UserTime, dwProcessID);
 	_tstring sTimeInfo = _T("");
 	if (bProcessTimes) {
-		sTimeInfo = format_file_time(CreationTime, _T("Start time: "));
+		sTimeInfo = format_file_time(CreationTime, _T("Started at: "));
 		if (pCurrentTime != NULL) {
-			sTimeInfo = sTimeInfo + _T(", Running time: ") + format_running_time(&CreationTime, pCurrentTime);
+			sTimeInfo = sTimeInfo + _T(", Running: ") + format_running_time(&CreationTime, pCurrentTime);
 		}
 	}
 	else {
 		DWORD err = GetLastError();
 		sTimeInfo = SysInfoUtils::StringFormat(_T("GetProcessTimes() failed with error %lu"), err);
 	}
-	_tprintf(_T("Process ID: %lu, Name: %s, %s\n"), dwProcessID, strName.c_str(), sTimeInfo.c_str());
+	_tprintf(_T("PID: %lu, Name: %s, Mem. Used: %lu.%lu MB, %s%s\n"), dwProcessID, strName.c_str(), dwMemSizeMB, dwMemSizeDP, sTimeInfo.c_str(), (bTerminate ? _T(" [T]") : _T("")));
 }
 
-void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, LPCTSTR lpFsPathFilter, DWORD dwRunningTimeFilter, 
-	BOOL bHandleProcessFilter, BOOL bTerminateFilteredProcesses = FALSE, BOOL bSilentTerminate = FALSE, 
+void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, LPCTSTR lpFsPathFilter, BOOL bHandleProcessFilter = TRUE, 
+	BOOL bTerminateFilteredProcesses = FALSE, DWORD dwTerminateMemSizeMB = 0, DWORD dwTerminateRunningTime = 0, BOOL bSilentTerminate = FALSE,
 	BOOL bPrintProcessFilterInfo = FALSE, BOOL bPrintFileHandleName = FALSE, BOOL bPrintFilteredProcesses = TRUE)
 {
 	FILETIME CurrentTime;
@@ -122,7 +125,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 		DWORD dwProcessID = it->first;
 		if (bPrintProcessFilterInfo) {
 			SYSTEM_PROCESS_INFORMATION* pSysProcess = it->second;
-			print_process_info(dwProcessID, pSysProcess, &hi, &CurrentTime);
+			print_process_info(dwProcessID, pSysProcess, &hi, &CurrentTime, FALSE);
 		}
 		if (bHandleProcessFilter) {
 			hi.AddProcessFilter(dwProcessID);
@@ -145,6 +148,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 	_tstring typeName;
 	WORD type = SysHandleInformation::OB_TYPE_UNKNOWN;
 	std::set<DWORD> filteredProcesses;
+	std::set<DWORD> terminateProcesses;
 
 	for (auto it = hi.m_HandleInfos.begin(); it != hi.m_HandleInfos.end(); ++it)
 	{
@@ -167,33 +171,59 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 			bFilterOut = bFilterOut && _tcsstr(fsPath.c_str(), lpFsPathFilter) == NULL;
 		}
 
-		if (dwRunningTimeFilter > 0 && !bFilterOut) {
-			FILETIME CreationTime, ExitTime, KernelTime, UserTime;
-			BOOL bProcessTimes = hi.GetProcessTimes((HANDLE)-1, &CreationTime, &ExitTime, &KernelTime, &UserTime, dwProcessID);
-			if (bProcessTimes) {
-				auto u64RunningTime = get_running_time(&CreationTime, &CurrentTime);
-				auto u64RunningMilliSeconds = u64RunningTime / 10000;
-				auto u64RunningSeconds = u64RunningMilliSeconds / 1000;
-				bFilterOut = u64RunningSeconds < static_cast<std::uint64_t>(dwRunningTimeFilter);
-			}
-			else {
-				DWORD err = GetLastError();
-				_tprintf(_T("GetProcessTimes() failed with error %lu.\n"), err);
-				bFilterOut = TRUE;
-			}
-		}
-
 		if (!bFilterOut) {
 			if (bPrintFileHandleName) {
-				_tprintf(_T("%s Handle: %hu, Process ID: %lu, Name: %s\n"), typeName.c_str(), h.HandleValue, dwProcessID, name.c_str());
+				_tprintf(_T("%s Handle: %hu, PID: %lu, Name: %s\n"), typeName.c_str(), h.HandleValue, dwProcessID, name.c_str());
 			} 
 			else {
-				_tprintf(_T("%s Handle: %hu, Process ID: %lu\n"), typeName.c_str(), h.HandleValue, dwProcessID);
+				_tprintf(_T("%s Handle: %hu, PID: %lu\n"), typeName.c_str(), h.HandleValue, dwProcessID);
 			}
 			if (fsPath != _T("")) {
 				_tprintf(_T("File Path: %s\n"), fsPath.c_str());
 			}
-			filteredProcesses.insert(dwProcessID);
+			auto inserted = filteredProcesses.insert(dwProcessID);
+ 			if (bTerminateFilteredProcesses && inserted.second)
+			{
+				BOOL bTerminateProcess = TRUE;
+				if (dwTerminateMemSizeMB > 0 && bTerminateProcess)
+				{
+					auto processInfo = pi.m_ProcessInfos.find(dwProcessID);
+					if (processInfo != pi.m_ProcessInfos.end())
+					{
+						SYSTEM_PROCESS_INFORMATION* pSysProcess = processInfo->second;
+						auto u64MemSize = pSysProcess->WorkingSetPrivateSize.QuadPart;
+						DWORD dwMemSizeMB = (DWORD)(u64MemSize >> 20);
+						if (dwMemSizeMB < dwTerminateMemSizeMB) {
+							bTerminateProcess = FALSE;
+						}
+					}
+					else {
+						_tprintf(_T("PID: %lu, process info not found.\n"), dwProcessID);
+						bTerminateProcess = FALSE;
+					}
+				}
+				if (dwTerminateRunningTime > 0 && bTerminateProcess)
+				{
+					FILETIME CreationTime, ExitTime, KernelTime, UserTime;
+					BOOL bProcessTimes = hi.GetProcessTimes((HANDLE)-1, &CreationTime, &ExitTime, &KernelTime, &UserTime, dwProcessID);
+					if (bProcessTimes) {
+						auto u64RunningTime = get_running_time(&CreationTime, &CurrentTime);
+						auto u64RunningMilliSeconds = u64RunningTime / 10000;
+						auto u64RunningSeconds = u64RunningMilliSeconds / 1000;
+						if (u64RunningSeconds < static_cast<std::uint64_t>(dwTerminateRunningTime)) {
+							bTerminateProcess = FALSE;
+						}
+					}
+					else {
+						DWORD err = GetLastError();
+						_tprintf(_T("GetProcessTimes() failed with error %lu.\n"), err);
+						bTerminateProcess = FALSE;
+					}
+				}
+				if (bTerminateProcess) {
+					terminateProcesses.insert(dwProcessID);
+				}
+			}
 		}
 	}
 
@@ -208,18 +238,20 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 		{
 			DWORD dwProcessID = *it;
 			auto processInfo = pi.m_ProcessInfos.find(dwProcessID);
-			if (processInfo != pi.m_ProcessInfos.end()) {
+			if (processInfo != pi.m_ProcessInfos.end()) 
+			{
+				BOOL bTerminateProcess = bTerminateFilteredProcesses && (terminateProcesses.find(dwProcessID) != terminateProcesses.end());
 				SYSTEM_PROCESS_INFORMATION* pSysProcess = processInfo->second;
-				print_process_info(dwProcessID, pSysProcess, &hi, &CurrentTime);
+				print_process_info(dwProcessID, pSysProcess, &hi, &CurrentTime, bTerminateProcess);
 			}
 			else {
-				_tprintf(_T("Process ID: %lu, process info not found.\n"), dwProcessID);
+				_tprintf(_T("PID: %lu, process info not found.\n"), dwProcessID);
 			}
 		}
 	}
 
 	if (bTerminateFilteredProcesses) {
-		for (auto it = filteredProcesses.begin(); it != filteredProcesses.end(); ++it)
+		for (auto it = terminateProcesses.begin(); it != terminateProcesses.end(); ++it)
 		{
 			DWORD dwProcessID = *it;
 			BOOL bTerminate = bSilentTerminate;
@@ -240,16 +272,16 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 					UINT uExitCode = 1;
 					if (!TerminateProcess(hProcess, uExitCode)) {
 						DWORD err = GetLastError();
-						_tprintf(_T("Process ID: %lu, TerminateProcess() failed with error %lu.\n"), dwProcessID, err);
+						_tprintf(_T("PID: %lu, TerminateProcess() failed with error %lu.\n"), dwProcessID, err);
 					}
 					else {
-						_tprintf(_T("Process ID: %lu, process has been terminated with exit code %lu.\n"), dwProcessID, uExitCode);
+						_tprintf(_T("PID: %lu, process has been terminated with exit code %lu.\n"), dwProcessID, uExitCode);
 					}
 					CloseHandle(hProcess);
 				}
 				else {
 					DWORD err = GetLastError();
-					_tprintf(_T("Process ID: %lu, OpenProcess() failed with error %lu.\n"), dwProcessID, err);
+					_tprintf(_T("PID: %lu, OpenProcess() failed with error %lu.\n"), dwProcessID, err);
 				}
 			}
 		}
@@ -259,5 +291,5 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 
 int main()
 {
-	list_processes_and_handles(_T("firefox.exe"), _T("File"), _T("\\Profiles\\"), 300, TRUE);
+	list_processes_and_handles(_T("firefox.exe"), _T("File"), _T("\\Profiles\\"), TRUE, TRUE, 100, 300);
 }
