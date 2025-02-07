@@ -31,7 +31,7 @@ _tstring format_file_time(FILETIME& ft, const LPCTSTR lpPrefix, BOOL bConvertToL
 	SYSTEMTIME sys = { 0 };
 	if (FileTimeToSystemTime(pFt, &sys)) {
 		//return SysInfoUtils::StringFormat(_T("%s%s, %s %hu, %hu %.2hu:%.2hu:%.2hu.%.3huZ"), lpPrefix, day[sys.wDayOfWeek], month[sys.wMonth - 1], sys.wDay, sys.wYear, sys.wHour, sys.wMinute, sys.wSecond, sys.wMilliseconds);
-		return SysInfoUtils::StringFormat(_T("%s%.4hu-%.2hu-%2hu %.2hu:%.2hu:%.2hu.%.3huZ"), lpPrefix, sys.wYear, sys.wMonth, sys.wDay, sys.wHour, sys.wMinute, sys.wSecond, sys.wMilliseconds);
+		return SysInfoUtils::StringFormat(_T("%s%.4hu-%.2hu-%.2hu %.2hu:%.2hu:%.2hu.%.3huZ"), lpPrefix, sys.wYear, sys.wMonth, sys.wDay, sys.wHour, sys.wMinute, sys.wSecond, sys.wMilliseconds);
 	}
 	else {
 		DWORD err = GetLastError();
