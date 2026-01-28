@@ -14,7 +14,7 @@
 #include <vector>
 #include <cstdlib>
 
-_tstring format_file_time(FILETIME& ft, const LPCTSTR lpPrefix, BOOL bConvertToLocal = TRUE)
+static _tstring format_file_time(FILETIME& ft, const LPCTSTR lpPrefix, BOOL bConvertToLocal = TRUE)
 {
 	const TCHAR* day[] = { _T("Sunday"),_T("Monday"),_T("Tuesday"),_T("Wednesday"),_T("Thursday"),_T("Friday"),_T("Saturday") };
 	const TCHAR* month[] = { _T("January"),_T("February"),_T("March"),_T("April"),_T("May"),_T("June"),_T("July"),_T("August"),_T("September"),_T("October"),_T("November"),_T("December") };
@@ -39,7 +39,7 @@ _tstring format_file_time(FILETIME& ft, const LPCTSTR lpPrefix, BOOL bConvertToL
 	}
 }
 
-std::uint64_t get_running_time(FILETIME* pStartTime, FILETIME* pCurrentTime)
+static std::uint64_t get_running_time(FILETIME* pStartTime, FILETIME* pCurrentTime)
 {
 	auto u64CreationTime = (static_cast<std::uint64_t>(pStartTime->dwHighDateTime) << 32) | pStartTime->dwLowDateTime;
 	auto u64CurrentTime = (static_cast<std::uint64_t>(pCurrentTime->dwHighDateTime) << 32) | pCurrentTime->dwLowDateTime;
@@ -47,7 +47,7 @@ std::uint64_t get_running_time(FILETIME* pStartTime, FILETIME* pCurrentTime)
 	return u64RunningTime;
 }
 
-_tstring format_running_time(FILETIME* pStartTime, FILETIME* pCurrentTime)
+static _tstring format_running_time(FILETIME* pStartTime, FILETIME* pCurrentTime)
 {
 	auto u64RunningTime = get_running_time(pStartTime, pCurrentTime);
 	auto u64RunningMilliSeconds = u64RunningTime / 10000;
@@ -78,7 +78,7 @@ _tstring format_running_time(FILETIME* pStartTime, FILETIME* pCurrentTime)
 	return result;
 }
 
-void print_process_info(DWORD dwProcessID, SYSTEM_PROCESS_INFORMATION* pSysProcess, SysHandleInformation* pHi, FILETIME* pCurrentTime, BOOL bTerminate)
+static void print_process_info(DWORD dwProcessID, SYSTEM_PROCESS_INFORMATION* pSysProcess, SysHandleInformation* pHi, FILETIME* pCurrentTime, BOOL bTerminate)
 {
 	_tstring strName = pSysProcess->ImageName.Length > 0 ? SysInfoUtils::Unicode2String(&pSysProcess->ImageName) : _T("");
 	auto u64MemSize = pSysProcess->WorkingSetPrivateSize.QuadPart;
@@ -100,7 +100,7 @@ void print_process_info(DWORD dwProcessID, SYSTEM_PROCESS_INFORMATION* pSysProce
 	_tprintf(_T("PID: %lu, Name: %s, Mem. Used: %lu.%lu MB, %s%s\n"), dwProcessID, strName.c_str(), dwMemSizeMB, dwMemSizeDP, sTimeInfo.c_str(), (bTerminate ? _T(" [T]") : _T("")));
 }
 
-void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, LPCTSTR lpFsPathFilter, BOOL bHandleProcessFilter = TRUE, 
+static void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTypeFilter, LPCTSTR lpFsPathFilter, BOOL bHandleProcessFilter = TRUE,
 	BOOL bTerminateFilteredProcesses = FALSE, DWORD dwTerminateMemSizeMB = 0, DWORD dwTerminateRunningTime = 0, BOOL bSilentTerminate = FALSE,
 	BOOL bPrintHandleInfo = TRUE, BOOL bPrintProcessFilterInfo = FALSE, BOOL bPrintFileHandleName = FALSE, BOOL bPrintFilteredProcesses = TRUE)
 {
@@ -293,7 +293,7 @@ void list_processes_and_handles(LPCTSTR lpProcessNameFilter, LPCTSTR lpHandleTyp
 	}
 }
 
-void ShowUsage(BOOL bHelp)
+static void ShowUsage(BOOL bHelp)
 {
 	_tprintf(_T("usage: listph.exe [-h] (-p NAME | -t TYPE) [-f PATH] [--terminate] [--mem-size MEM_SIZE] [--running-time TIME] [--silent] [--print-handles yes/no]\n"));
 	if (bHelp)
@@ -336,7 +336,7 @@ void ShowUsage(BOOL bHelp)
 	}
 }
 
-int _tmain(int argc, TCHAR** argv)
+int _tmain(int argc, TCHAR** argv) // VCR003
 {
 	std::vector<_tstring> args(argv + 1, argv + argc);
 
